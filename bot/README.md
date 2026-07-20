@@ -62,6 +62,8 @@ Actions*:
 |---|---|---|
 | `MINT` | `bot/config.json` value | your token's mint address |
 | `DRY_RUN` | `bot/config.json` value | `1` = rehearse: reads + simulations only, no sends (also a manual-run input) |
+| `COMPOUND_PCT` | `bot/config.json` value (75) | share of each claim compounded into liquidity |
+| `PAYOUT_ADDRESS` | `bot/config.json` value | wallet that receives the remaining share. **Required for a real split** — without it the remainder is compounded too. Public address, not a key. |
 | `MIN_CLAIM_SOL` | `0.05` | skip the cycle below this much accrued/surplus SOL |
 | `GAS_RESERVE_SOL` | `0.03` | float that always stays in the wallet for tx fees |
 | `SLIPPAGE_PCT` | `2` | max slippage per swap/deposit, percent |

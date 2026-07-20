@@ -35,6 +35,8 @@ jobs:
           WALLET_SECRET_KEY: ${{ secrets.WALLET_SECRET_KEY }}
           MINT: ${{ vars.MINT }}
           DRY_RUN: ${{ inputs.dry_run || vars.DRY_RUN }}
+          COMPOUND_PCT: ${{ vars.COMPOUND_PCT }}
+          PAYOUT_ADDRESS: ${{ vars.PAYOUT_ADDRESS }}
           MIN_CLAIM_SOL: ${{ vars.MIN_CLAIM_SOL }}
           GAS_RESERVE_SOL: ${{ vars.GAS_RESERVE_SOL }}
           SLIPPAGE_PCT: ${{ vars.SLIPPAGE_PCT }}

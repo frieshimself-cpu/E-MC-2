@@ -3,8 +3,9 @@
 // PumpSwap liquidity, exactly as the site describes:
 //
 //   idle  — until the token graduates (canonical PumpSwap pool exists)
-//   cycle — claim 100% of accrued creator fees (bonding curve + AMM sides)
-//           → swap half into $EMC2
+//   cycle — claim all accrued creator fees (bonding curve + AMM sides)
+//           → send (100 − COMPOUND_PCT)% to PAYOUT_ADDRESS
+//           → swap half the rest into $EMC2
 //           → deposit both sides as liquidity
 //           → burn the LP tokens (liquidity can never be withdrawn)
 //           → publish {compounds, solCompounded} to Upstash for the site
@@ -48,8 +49,8 @@ const {
 // ---------------------------------------------------------------------------
 
 // Committed defaults (bot/config.json) that env vars override — lets launch
-// config (mint, go-live) ship as commits instead of repo-settings edits.
-let config = { mint: "", dryRun: true };
+// config (mint, go-live, split) ship as commits instead of repo-settings edits.
+let config = { mint: "", dryRun: true, compoundPct: 100, payoutAddress: "" };
 try {
   config = { ...config, ...require("./config.json") };
 } catch {}
@@ -60,6 +61,11 @@ const MINT = env.MINT || config.mint;
 const DRY_RUN = env.DRY_RUN != null && env.DRY_RUN !== ""
   ? env.DRY_RUN === "1" || env.DRY_RUN === "true"
   : config.dryRun !== false;
+// Share of each claim that gets compounded into liquidity; the rest is sent
+// to PAYOUT_ADDRESS. Without a payout address the remainder has nowhere to
+// go and is compounded as well (the wallet is swept to its gas float).
+const COMPOUND_PCT = Math.min(100, Math.max(1, Number(env.COMPOUND_PCT || config.compoundPct || 100)));
+const PAYOUT_ADDRESS = env.PAYOUT_ADDRESS || config.payoutAddress || "";
 const MIN_CLAIM_SOL = Number(env.MIN_CLAIM_SOL || "0.05");
 const GAS_RESERVE_SOL = Number(env.GAS_RESERVE_SOL || "0.03");
 const SLIPPAGE_PCT = Number(env.SLIPPAGE_PCT || "2"); // percent, e.g. 2 = 2%
@@ -245,8 +251,30 @@ async function main() {
   if (claimIxs.length) await send(connection, wallet, "claim", claimIxs);
   else console.log("vaults empty — compounding wallet surplus only");
 
-  // -- 2. budget ------------------------------------------------------------
-  const balance = DRY_RUN ? walletBalance + Number(accrued) : await connection.getBalance(wallet.publicKey);
+  // -- 2. operator share ----------------------------------------------------
+  let balance = DRY_RUN ? walletBalance + Number(accrued) : await connection.getBalance(wallet.publicKey);
+  const keepShare = Math.floor((Number(accrued) * (100 - COMPOUND_PCT)) / 100);
+  if (keepShare > 0) {
+    if (PAYOUT_ADDRESS) {
+      const payout = new PublicKey(PAYOUT_ADDRESS);
+      const amount = Math.min(keepShare, Math.max(0, balance - reserve));
+      if (amount > 0) {
+        const { SystemProgram } = require("@solana/web3.js");
+        await send(connection, wallet, `payout ${100 - COMPOUND_PCT}%`, [
+          SystemProgram.transfer({ fromPubkey: wallet.publicKey, toPubkey: payout, lamports: amount }),
+        ]);
+        console.log(`paid out ${sol(amount)} SOL to ${payout.toBase58()}`);
+        if (!DRY_RUN) balance = await connection.getBalance(wallet.publicKey);
+        else balance -= amount;
+      }
+    } else {
+      console.warn(
+        `⚠ COMPOUND_PCT=${COMPOUND_PCT} but no PAYOUT_ADDRESS set — the ${100 - COMPOUND_PCT}% remainder will be compounded too`,
+      );
+    }
+  }
+
+  // -- 3. budget ------------------------------------------------------------
   const budget = balance - reserve;
   if (budget < minClaim) {
     console.log(`post-claim budget ${sol(budget)} SOL below minimum — stopping here`);
@@ -256,12 +284,12 @@ async function main() {
   const half = Math.floor(budget / 2);
   console.log(`budget ${sol(budget)} SOL → buy ${sol(half)} + deposit`);
 
-  // -- 3. swap half into the token -----------------------------------------
+  // -- 4. swap half into the token -----------------------------------------
   const swapState = await onlineAmm.swapSolanaState(poolKey, wallet.publicKey);
   const buyIxs = await ammSdk.buyQuoteInput(swapState, bn(half), SLIPPAGE_PCT);
   await send(connection, wallet, "buy", buyIxs);
 
-  // -- 4. deposit both sides as liquidity -----------------------------------
+  // -- 5. deposit both sides as liquidity -----------------------------------
   const liqState = await onlineAmm.liquiditySolanaState(poolKey, wallet.publicKey);
   const baseAta = liqState.userBaseTokenAccount;
   const baseBal = DRY_RUN
@@ -288,7 +316,7 @@ async function main() {
     await send(connection, wallet, "deposit", depositIxs);
   }
 
-  // -- 5. burn the LP tokens — the ratchet ---------------------------------
+  // -- 6. burn the LP tokens — the ratchet ---------------------------------
   if (!DRY_RUN) {
     const lpAta = liqState.userPoolTokenAccount;
     const lpBal = bn((await connection.getTokenAccountBalance(lpAta)).value.amount);
@@ -308,7 +336,7 @@ async function main() {
     console.log("dry-run: would burn all LP tokens received from the deposit");
   }
 
-  // -- 6. publish stats -----------------------------------------------------
+  // -- 7. publish stats -----------------------------------------------------
   const compounded = Number(budget) / LAMPORTS_PER_SOL;
   const prev = (await readStats()) || { compounds: 0, solCompounded: 0 };
   await writeStats({
