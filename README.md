@@ -1,12 +1,12 @@
-# E=MC² — exponentialmarketcap.fun
+# E=MC²
 
 Landing page for **$EMC2** — "liquidity is the mass, attention is the multiplier."
-1:1 clone of [exponentialmarketcap.fun](https://exponentialmarketcap.fun/), same stack, same layout, same behavior.
+100% of pump.fun creator fees auto-compound into liquidity every 10 minutes.
 
 ## Stack
 
 - **Vite 5** + **React 18** (JSX, automatic runtime) — single-page app, no router
-- **Vanilla CSS** (`src/index.css`) — hand-drawn chalkboard theme, CSS variables, no framework
+- **Vanilla CSS** (`src/index.css`) — hand-drawn green-chalkboard theme, CSS variables, no framework
 - **Google Fonts** — Kalam, Patrick Hand, Space Mono, Inter
 - **Vercel** — static build + two serverless functions in `api/`
 

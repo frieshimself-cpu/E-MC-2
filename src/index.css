@@ -1,14 +1,14 @@
 :root {
-  --board: #22252c;
-  --board-2: #1a1d23;
-  --board-3: #14161b;
+  --board: #1c3b2b;
+  --board-2: #163020;
+  --board-3: #0f2418;
   --chalk: #eef0e6;
   --chalk-dim: rgba(238, 240, 230, 0.62);
   --chalk-faint: rgba(238, 240, 230, 0.14);
-  --yellow: #ffe06a;
+  --yellow: #8ce05f;
   --cyan: #7fd8d2;
   --pink: #f4a3b6;
-  --green: #a7e08a;
+  --green: #b6e88f;
   --f-chalk: "Kalam", "Comic Sans MS", cursive;
   --f-hand: "Patrick Hand", cursive;
   --f-mono: "Space Mono", ui-monospace, monospace;
@@ -29,7 +29,7 @@ body {
   background-image:
     radial-gradient(
       circle at 50% 0%,
-      rgba(255, 224, 106, 0.05),
+      rgba(140, 224, 95, 0.07),
       transparent 55%
     ),
     linear-gradient(rgba(238, 240, 230, 0.035) 1px, transparent 1px),
@@ -125,7 +125,7 @@ img {
   color: var(--board-3);
 }
 .btn--primary:hover {
-  background: #ffe885;
+  background: #a3e878;
 }
 .btn--ghost:hover {
   background: #eef0e614;
@@ -319,7 +319,7 @@ img {
   right: -2%;
   bottom: -4%;
   left: -2%;
-  border: 3px dashed rgba(255, 224, 106, 0.4);
+  border: 3px dashed rgba(140, 224, 95, 0.4);
   border-radius: 48% 52% 50% 50%;
   animation: spin 60s linear infinite;
   pointer-events: none;
@@ -421,7 +421,7 @@ img {
   color: var(--pink);
 }
 .tone-yellow {
-  border-color: #ffe06a73;
+  border-color: #8ce05f73;
 }
 .tone-cyan {
   border-color: #7fd8d273;
@@ -554,7 +554,7 @@ img {
   border-color: #7fd8d266;
 }
 .why__card:nth-child(3) {
-  border-color: #ffe06a66;
+  border-color: #8ce05f66;
 }
 .why__n {
   font-family: var(--f-mono);
