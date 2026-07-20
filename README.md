@@ -47,12 +47,56 @@ npm run dev        # UI only — /api/* 404s locally, the page falls back cleanl
 vercel dev         # UI + serverless functions
 ```
 
-## Build & deploy
+## Deploy on Vercel
+
+1. Push this repo to GitHub (done) → [vercel.com/new](https://vercel.com/new) →
+   **Import** the repo. Vercel auto-detects the Vite preset and the `api/`
+   functions — no config needed. Deploy.
+2. (Optional) add your domain under **Settings → Domains**.
+
+Without any env vars the site is an exact clone of production, pointing at the
+original $EMC2 mint.
+
+## Launch-day checklist (your own pump.fun token)
+
+Before launch, optionally set `VITE_MINT=""` (empty) and redeploy → the site
+runs in teaser mode: "drops at launch", buy button and contract copy disabled.
+
+The moment your token is live on pump.fun:
+
+1. In Vercel **Settings → Environment Variables**, set:
+   - `VITE_MINT` — your mint address (the `...pump` address from pump.fun)
+   - `VITE_LAUNCH_TS` — `Date.now()` at launch (ms epoch)
+   - `VITE_COMPOUND_MINUTES` — your real claim cadence (default `10`)
+2. **Redeploy** (frontend vars are baked in at build time).
+3. Done — buy links, DexScreener chart, contract copy button, and live
+   market polling (price/mcap/liquidity/24h via `/api/market`) all switch to
+   your token automatically. DexScreener data appears once the token has an
+   indexed pool.
+
+### Live "Compounds / SOL added" numbers
+
+The stats card reads `/api/stats`, which serves whatever your compound bot
+last wrote to Upstash Redis:
+
+1. Create a free [Upstash](https://upstash.com) Redis DB; set
+   `UPSTASH_REDIS_REST_URL` + `UPSTASH_REDIS_REST_TOKEN` (and optionally
+   `STATS_KEY`) in Vercel. These are read per-request — no redeploy needed.
+2. After each successful claim+compound, have your bot run:
+
+   ```sh
+   node scripts/update-stats.mjs --compounds <total so far> --sol <total SOL added>
+   ```
+
+   (or `POST {url}/set/{key}` to Upstash directly with
+   `{"compounds":n,"solCompounded":x,"updatedAt":ms}`).
+
+Until the bot writes real numbers the card shows a launch-clock estimate and
+"since launch" — nothing breaks. The fee-claiming / liquidity-adding bot
+itself is separate on-chain infrastructure and is not part of this repo.
+
+## Build
 
 ```sh
 npm run build      # outputs dist/
 ```
-
-Deploy on Vercel: framework preset **Vite**, functions in `api/` are picked up
-automatically. Token config (mint address, launch timestamp, compound interval,
-links) lives at the top of `src/App.jsx`.

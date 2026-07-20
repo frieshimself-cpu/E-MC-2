@@ -1,13 +1,22 @@
 import React, { useEffect, useRef, useState } from "react";
 
 // ---------------------------------------------------------------------------
-// Config
+// Config — override per deployment via Vercel env vars (rebuild to apply):
+//   VITE_MINT             pump.fun mint address ("" = pre-launch teaser mode)
+//   VITE_LAUNCH_TS        launch time, ms epoch (Date.now() at launch)
+//   VITE_COMPOUND_MINUTES compound cycle length in minutes
 // ---------------------------------------------------------------------------
 
+const env = import.meta.env;
+const envNum = (v, fallback) => {
+  const n = Number(v);
+  return Number.isFinite(n) && v !== "" && v != null ? n : fallback;
+};
+
 const TOTAL_SUPPLY = 1e9;
-const MINT = "GX1HiPYh54o4cdPUqoeAYGC8dnhNqc3h7CtJQ8ySpump";
-const LAUNCH_TS = 1780759108439;
-const COMPOUND_MINUTES = 10;
+const MINT = env.VITE_MINT ?? "GX1HiPYh54o4cdPUqoeAYGC8dnhNqc3h7CtJQ8ySpump";
+const LAUNCH_TS = envNum(env.VITE_LAUNCH_TS, 1780759108439);
+const COMPOUND_MINUTES = envNum(env.VITE_COMPOUND_MINUTES, 10);
 
 const PUMP_URL = `https://pump.fun/coin/${MINT}`;
 const DEX_URL = `https://dexscreener.com/solana/${MINT}`;
