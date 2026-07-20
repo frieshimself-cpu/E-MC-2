@@ -1,0 +1,39 @@
+name: compound
+
+on:
+  schedule:
+    - cron: "*/10 * * * *"
+  workflow_dispatch: {}
+
+concurrency:
+  group: compound
+  cancel-in-progress: false
+
+jobs:
+  compound:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    defaults:
+      run:
+        working-directory: bot
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: bot/package-lock.json
+      - run: npm ci
+      - run: node compound.js
+        env:
+          RPC_URL: ${{ secrets.RPC_URL }}
+          WALLET_SECRET_KEY: ${{ secrets.WALLET_SECRET_KEY }}
+          MINT: ${{ vars.MINT }}
+          DRY_RUN: ${{ vars.DRY_RUN }}
+          MIN_CLAIM_SOL: ${{ vars.MIN_CLAIM_SOL }}
+          GAS_RESERVE_SOL: ${{ vars.GAS_RESERVE_SOL }}
+          SLIPPAGE_PCT: ${{ vars.SLIPPAGE_PCT }}
+          PRIORITY_FEE_MICROLAMPORTS: ${{ vars.PRIORITY_FEE_MICROLAMPORTS }}
+          UPSTASH_REDIS_REST_URL: ${{ secrets.UPSTASH_REDIS_REST_URL }}
+          UPSTASH_REDIS_REST_TOKEN: ${{ secrets.UPSTASH_REDIS_REST_TOKEN }}
+          STATS_KEY: ${{ vars.STATS_KEY }}

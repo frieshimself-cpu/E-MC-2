@@ -92,8 +92,13 @@ last wrote to Upstash Redis:
    `{"compounds":n,"solCompounded":x,"updatedAt":ms}`).
 
 Until the bot writes real numbers the card shows a launch-clock estimate and
-"since launch" — nothing breaks. The fee-claiming / liquidity-adding bot
-itself is separate on-chain infrastructure and is not part of this repo.
+"since launch" — nothing breaks.
+
+The fee-claiming / liquidity-adding bot lives in [`bot/`](bot/README.md): it
+idles until the token graduates to PumpSwap, then every 10 minutes claims
+creator fees, deposits them as liquidity, burns the LP tokens, and updates
+these stats. Runs on the GitHub Actions cron in
+`.github/workflows/compound.yml`.
 
 ## Build
 
