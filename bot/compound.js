@@ -2,13 +2,15 @@
 // E=MC² compound bot — claims pump.fun creator fees and locks them into
 // PumpSwap liquidity, exactly as the site describes:
 //
-//   idle  — until the token graduates (canonical PumpSwap pool exists)
-//   cycle — claim all accrued creator fees (bonding curve + AMM sides)
+//   every cycle    — claim ALL accrued pump.fun creator fees (curve + AMM)
+//   once graduated — also compound them:
 //           → send (100 − COMPOUND_PCT)% to PAYOUT_ADDRESS
 //           → swap half the rest into $EMC2
 //           → deposit both sides as liquidity
 //           → burn the LP tokens (liquidity can never be withdrawn)
 //           → publish {compounds, solCompounded} to Upstash for the site
+//   pre-graduation there is no pool to compound into, so claimed fees are held
+//   in the wallet and swept into the first compound at graduation
 //
 // The wallet must BE the token creator (fees are only claimable by the
 // creator). Keep only a small gas float in it: everything above GAS_RESERVE
@@ -37,11 +39,17 @@ const {
 } = require("@solana/spl-token");
 const BN = require("bn.js");
 const bs58 = require("bs58").default || require("bs58");
-const { OnlinePumpSdk, PumpSdk, bondingCurvePda } = require("@pump-fun/pump-sdk");
+const {
+  OnlinePumpSdk,
+  PumpSdk,
+  bondingCurvePda,
+  feeSharingConfigPda,
+} = require("@pump-fun/pump-sdk");
 const {
   OnlinePumpAmmSdk,
   PumpAmmSdk,
   canonicalPumpPoolPda,
+  PUMP_PROGRAM_ID,
 } = require("@pump-fun/pump-swap-sdk");
 
 // ---------------------------------------------------------------------------
@@ -185,38 +193,64 @@ async function main() {
   console.log(`mint   ${mint.toBase58()}`);
   console.log(`wallet ${wallet.publicKey.toBase58()}${DRY_RUN ? " (DRY RUN)" : ""}`);
 
-  // -- graduation gate ------------------------------------------------------
+  let pool = null;
+
+  // -- state: bonding curve / graduated, legacy vault vs sharing config -----
   const poolKey = canonicalPumpPoolPda(mint);
-  const [curveInfo, poolInfo] = await Promise.all([
+  const sharingKey = feeSharingConfigPda(mint);
+  const [curveInfo, poolInfo, sharingInfo] = await Promise.all([
     connection.getAccountInfo(bondingCurvePda(mint)),
     connection.getAccountInfo(poolKey),
+    connection.getAccountInfo(sharingKey),
   ]);
   const curve = curveInfo ? pumpSdk.decodeBondingCurveNullable(curveInfo) : null;
+  const graduated = !!poolInfo && (!curve || curve.complete);
+  // Modern pump.fun migrates creator fees to a "fee sharing config": fees are
+  // claimed with distributeCreatorFees (not collectCreatorFee) and routed to
+  // shareholders. Detected by the presence of the sharing-config account.
+  const sharing = sharingInfo ? pumpSdk.decodeSharingConfig(sharingInfo) : null;
 
-  if (!poolInfo || (curve && !curve.complete)) {
-    const pct = curve
-      ? (100 * (1 - curve.realTokenReserves.toNumber() / curve.tokenTotalSupply.toNumber())).toFixed(1)
-      : "?";
-    console.log(`waiting for graduation — pool ${poolKey.toBase58()} not live yet (curve ~${pct}% sold)`);
+  if (!curve && !poolInfo) {
+    console.log("mint not found on pump.fun yet — nothing to claim");
     await heartbeat();
     return;
   }
+  if (graduated) pool = await onlineAmm.fetchPool(poolKey);
+  console.log(
+    `state  ${graduated ? "graduated ✓" : "bonding curve"} · fees ${sharing ? "SHARING CONFIG" : "legacy creator vault"}`,
+  );
 
-  const pool = await onlineAmm.fetchPool(poolKey);
-  const creator = pool.coinCreator;
-  console.log(`pool   ${poolKey.toBase58()} (graduated ✓)`);
-  console.log(`creator ${creator.toBase58()}`);
-
-  if (!wallet.publicKey.equals(creator)) {
-    const msg = `wallet is not the coin creator — creator fees can only be claimed by ${creator.toBase58()}`;
-    if (DRY_RUN) console.warn("⚠ " + msg);
-    else fail(msg);
+  // Ownership / beneficiary check.
+  if (sharing) {
+    const me = sharing.shareholders.find((h) => h.address.equals(wallet.publicKey));
+    const bps = me ? me.shareBps : 0;
+    console.log(
+      `sharing: ${sharing.shareholders.length} shareholder(s); this wallet's share = ${(bps / 100).toFixed(2)}%`,
+    );
+    if (!me) {
+      const msg = "wallet is not a shareholder in this token's fee-sharing config — it would receive nothing to compound";
+      if (DRY_RUN) console.warn("⚠ " + msg);
+      else return fail(msg);
+    } else if (bps < 10000) {
+      console.warn(`⚠ this wallet's share is ${(bps / 100).toFixed(2)}%, not 100% — only that share reaches liquidity`);
+    }
+  } else {
+    const creator = graduated ? pool.coinCreator : curve.creator;
+    console.log(`creator ${creator.toBase58()}`);
+    if (!wallet.publicKey.equals(creator)) {
+      const msg = `wallet is not the coin creator — creator fees can only be claimed by ${creator.toBase58()}`;
+      if (DRY_RUN) console.warn("⚠ " + msg);
+      else return fail(msg);
+    }
   }
 
-  // -- how much is claimable ------------------------------------------------
+  // -- how much is claimable (claim runs EVERY cycle) ----------------------
+  // The vault authority that holds AMM-side fees is the sharing-config PDA
+  // under a sharing config, else the coin creator.
+  const vaultAuthority = sharing ? sharingKey : graduated ? pool.coinCreator : curve.creator;
   const [curveSideFees, ammSideFees, walletBalance] = await Promise.all([
-    onlinePump.getCreatorVaultBalance(creator),
-    onlineAmm.getCoinCreatorVaultBalance(creator),
+    onlinePump.getCreatorVaultBalance(vaultAuthority),
+    graduated ? onlineAmm.getCoinCreatorVaultBalance(vaultAuthority) : Promise.resolve(bn(0)),
     connection.getBalance(wallet.publicKey),
   ]);
   const accrued = curveSideFees.add(ammSideFees);
@@ -225,24 +259,42 @@ async function main() {
   const minClaim = Math.round(MIN_CLAIM_SOL * LAMPORTS_PER_SOL);
 
   console.log(
-    `fees   curve ${sol(curveSideFees)} + amm ${sol(ammSideFees)} = ${sol(accrued)} SOL accrued; wallet surplus ${sol(surplus)} SOL`,
+    `fees   ${sol(accrued)} SOL claimable (curve ${sol(curveSideFees)} + amm ${sol(ammSideFees)}); wallet surplus ${sol(surplus)} SOL`,
   );
 
   if (accrued.ltn(minClaim) && surplus < minClaim) {
-    console.log(`below MIN_CLAIM_SOL (${MIN_CLAIM_SOL}) — nothing to do`);
+    console.log(`below MIN_CLAIM_SOL (${MIN_CLAIM_SOL}) — nothing to do this cycle`);
     await heartbeat();
     return;
   }
 
-  // -- 1. claim -------------------------------------------------------------
-  // One SDK call returns the complete claim bundle — verified against mainnet
-  // as 4 instructions: bonding-curve collect, ATA create, AMM collect, and the
-  // WSOL unwrap. It claims BOTH vaults, so we don't hand-assemble either side.
+  // -- 1. claim / distribute creator fees -----------------------------------
   if (accrued.gtn(0)) {
-    const claimIxs = await onlinePump.collectCoinCreatorFeeInstructions(creator);
-    await send(connection, wallet, "claim", claimIxs);
+    let claimIxs, label;
+    if (sharing) {
+      // distributeCreatorFees consolidates the AMM vault (if graduated) and
+      // pays every shareholder their share. The SDK assembles the accounts.
+      claimIxs = (await onlinePump.buildDistributeCreatorFeesInstructions(mint)).instructions;
+      label = "distribute (sharing config)";
+    } else {
+      // Legacy collectCreatorFee. Full bundle when graduated (both vaults +
+      // WSOL unwrap); pre-graduation only the pump-program collect (filtered
+      // by program id, not array position).
+      const bundle = await onlinePump.collectCoinCreatorFeeInstructions(vaultAuthority);
+      claimIxs = graduated ? bundle : bundle.filter((ix) => ix.programId.equals(PUMP_PROGRAM_ID));
+      label = graduated ? "claim curve+amm" : "claim curve";
+    }
+    await send(connection, wallet, label, claimIxs);
   } else {
     console.log("vaults empty — compounding wallet surplus only");
+  }
+
+  // Pre-graduation there is no pool to compound into: the claimed fees sit in
+  // the wallet and are swept into the very first post-graduation compound.
+  if (!graduated) {
+    console.log("bonding curve — fees claimed and held; compounding begins at graduation");
+    await heartbeat();
+    return;
   }
 
   // -- 2. operator share ----------------------------------------------------

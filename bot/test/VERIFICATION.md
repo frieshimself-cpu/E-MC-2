@@ -17,9 +17,9 @@ then ran the exact SDK calls the bot uses.
   locked as liquidity forever`. Measured as (SOL side + token side priced at
   pool spot) ÷ SOL spent.
 
-## Two real bugs this testing caught (both fixed)
+## Three real bugs this testing caught (all fixed)
 
-1. **Claim** — `collectCoinCreatorFeeInstructions()` already returns the
+1. **Claim bundle** — `collectCoinCreatorFeeInstructions()` already returns the
    complete 4-instruction bundle (curve collect, ATA create, AMM collect, WSOL
    unwrap). The bot had been cherry-picking one instruction and rebuilding the
    rest, which mishandled the normal post-graduation case (curve vault empty,
@@ -27,6 +27,41 @@ then ran the exact SDK calls the bot uses.
 2. **Deposit dust** — deposits now prefer putting in *all* the bought tokens, so
    leftover is self-healing SOL (swept next cycle) rather than tokens that pile
    up uncompounded. In a deep pool token dust → ~0.
+3. **Sharing-config regime (critical)** — simulating the claim against a real
+   graduated token with 47 SOL of fees waiting returned on-chain error **6050:
+   `creator_vault has been migrated to sharing config, use
+   pump:distribute_creator_fees instead`.** Modern pump.fun routes graduated
+   creator fees through a *fee-sharing config*, claimed with
+   `distributeCreatorFees`, not `collectCreatorFee`. The bot would have failed
+   to claim anything on such tokens. Fixed: the bot now detects the regime
+   (`feeSharingConfigPda` account present) and uses
+   `buildDistributeCreatorFeesInstructions` for sharing-config tokens — which
+   **simulated `ok`** against that same 47-SOL token.
+
+## Claim paths validated by simulation against real mainnet tokens
+
+The claim itself can only be *executed* by the fee owner (whose key we don't
+hold), but each path was **simulated against live state**, which runs the real
+program logic:
+
+| regime | token state | instruction | result |
+|---|---|---|---|
+| bonding curve | pre-graduation | `collectCreatorFee` (curve only) | simulate **ok** |
+| legacy vault | graduated (older token) | `collectCoinCreatorFee` bundle | builds; sim blocked only by an empty test wallet |
+| sharing config | graduated (modern token) | `distributeCreatorFees` | simulate **ok**, 47 SOL |
+
+**Fee routing caveat (sharing config):** fees are split among the config's
+shareholders by `shareBps`. The bot decodes the config and refuses to run
+unless its wallet is a shareholder, and warns if the wallet's share is < 100%.
+Whether the launch wallet receives 100% depends on how the token's fee-sharing
+is set up at creation — verify on the first live cycle.
+
+## Constant claiming
+
+The bot claims **every cycle** from launch: curve-side fees during the bonding
+phase (held in the wallet), then curve+AMM (or distribute) once graduated.
+Pre-graduation there is no pool to compound into, so held fees are swept into
+the first post-graduation compound.
 
 ## The honest gap to "100%"
 
