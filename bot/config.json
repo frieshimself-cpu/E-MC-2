@@ -1,6 +1,6 @@
 {
   "mint": "",
   "dryRun": true,
-  "compoundPct": 75,
+  "compoundPct": 100,
   "payoutAddress": ""
 }
