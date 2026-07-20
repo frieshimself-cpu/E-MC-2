@@ -14,7 +14,7 @@ const envNum = (v, fallback) => {
 };
 
 const TOTAL_SUPPLY = 1e9;
-const MINT = env.VITE_MINT ?? "Ghcvdqib9cVeNbA7TQesLC47gWT4gNq5ZwbcTNwQpump";
+const MINT = env.VITE_MINT ?? "EjdSWhxRGLBgrGnQ9kJtJkPn3v1JtNsmLTmo9xVhpump";
 const LAUNCH_TS = envNum(env.VITE_LAUNCH_TS, 1780759108439);
 const COMPOUND_MINUTES = envNum(env.VITE_COMPOUND_MINUTES, 10);
 
