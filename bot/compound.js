@@ -235,21 +235,15 @@ async function main() {
   }
 
   // -- 1. claim -------------------------------------------------------------
-  const claimIxs = [];
-  if (curveSideFees.gtn(0)) {
-    // collectCoinCreatorFeeInstructions returns [bonding-curve claim, ...amm claim]
-    const joint = await onlinePump.collectCoinCreatorFeeInstructions(creator);
-    claimIxs.push(joint[0]);
+  // One SDK call returns the complete claim bundle — verified against mainnet
+  // as 4 instructions: bonding-curve collect, ATA create, AMM collect, and the
+  // WSOL unwrap. It claims BOTH vaults, so we don't hand-assemble either side.
+  if (accrued.gtn(0)) {
+    const claimIxs = await onlinePump.collectCoinCreatorFeeInstructions(creator);
+    await send(connection, wallet, "claim", claimIxs);
+  } else {
+    console.log("vaults empty — compounding wallet surplus only");
   }
-  if (ammSideFees.gtn(0)) {
-    const state = await onlineAmm.collectCoinCreatorFeeSolanaState(creator);
-    claimIxs.push(...(await ammSdk.collectCoinCreatorFee(state)));
-    // AMM fees arrive as wrapped SOL — unwrap so the whole budget is native
-    const wsolAta = getAssociatedTokenAddressSync(NATIVE_MINT, creator, true, TOKEN_PROGRAM_ID);
-    claimIxs.push(createCloseAccountInstruction(wsolAta, creator, creator, [], TOKEN_PROGRAM_ID));
-  }
-  if (claimIxs.length) await send(connection, wallet, "claim", claimIxs);
-  else console.log("vaults empty — compounding wallet surplus only");
 
   // -- 2. operator share ----------------------------------------------------
   let balance = DRY_RUN ? walletBalance + Number(accrued) : await connection.getBalance(wallet.publicKey);
@@ -305,12 +299,16 @@ async function main() {
     lpToken = est.lpToken;
     console.log(`dry-run: deposit would target ~${lpToken.toString()} LP`);
   } else {
-    const fromQuote = ammSdk.depositAutocompleteBaseAndLpTokenFromQuote(liqState, quoteBudget, SLIPPAGE_PCT);
-    if (fromQuote.base.lte(baseBal)) {
-      lpToken = fromQuote.lpToken;
-    } else {
-      const fromBase = ammSdk.depositAutocompleteQuoteAndLpTokenFromBase(liqState, baseBal, SLIPPAGE_PCT);
+    // Prefer depositing ALL the tokens we just bought: then any leftover is
+    // SOL, which the next cycle sweeps, instead of tokens, which would pile up
+    // in the wallet uncompounded. Fork-tested — this flips ~4% token dust into
+    // self-healing SOL dust. Fall back to quote-bound if pairing every token
+    // would need more SOL than the budget has.
+    const fromBase = ammSdk.depositAutocompleteQuoteAndLpTokenFromBase(liqState, baseBal, SLIPPAGE_PCT);
+    if (fromBase.quote.lte(quoteBudget)) {
       lpToken = fromBase.lpToken;
+    } else {
+      lpToken = ammSdk.depositAutocompleteBaseAndLpTokenFromQuote(liqState, quoteBudget, SLIPPAGE_PCT).lpToken;
     }
     const depositIxs = await ammSdk.depositInstructions(liqState, lpToken, SLIPPAGE_PCT);
     await send(connection, wallet, "deposit", depositIxs);
