@@ -3,7 +3,12 @@ name: compound
 on:
   schedule:
     - cron: "*/10 * * * *"
-  workflow_dispatch: {}
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "1 = simulate only, 0 = live (empty = bot/config.json default)"
+        required: false
+        default: ""
 
 concurrency:
   group: compound
@@ -29,7 +34,7 @@ jobs:
           RPC_URL: ${{ secrets.RPC_URL }}
           WALLET_SECRET_KEY: ${{ secrets.WALLET_SECRET_KEY }}
           MINT: ${{ vars.MINT }}
-          DRY_RUN: ${{ vars.DRY_RUN }}
+          DRY_RUN: ${{ inputs.dry_run || vars.DRY_RUN }}
           MIN_CLAIM_SOL: ${{ vars.MIN_CLAIM_SOL }}
           GAS_RESERVE_SOL: ${{ vars.GAS_RESERVE_SOL }}
           SLIPPAGE_PCT: ${{ vars.SLIPPAGE_PCT }}

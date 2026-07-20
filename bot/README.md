@@ -25,7 +25,23 @@ solana address -k bot-wallet.json                            # its address
 Fund it with ~0.1 SOL, import it into your wallet app if you want, and
 **deploy the token from it**. Never deploy from your personal wallet.
 
-## Setup (GitHub Actions, free)
+## Fast path: one script
+
+```sh
+bash bot/setup.sh
+```
+
+Creates the bot wallet locally (`bot/bot-wallet.json`, gitignored), uploads
+`WALLET_SECRET_KEY` / `RPC_URL` / Upstash secrets to GitHub Actions via the
+`gh` CLI, and prints the address to fund. Back the wallet file up — GitHub
+secrets are write-only and the key IS the creator-fee rights.
+
+Launch config ships as commits, not settings: `bot/config.json` holds
+`{ mint, dryRun }` (env vars override it). Deploy the token from the bot
+wallet, hand the CA to whoever drives the repo (or commit it yourself), flip
+`dryRun` to `false` when rehearsals look right.
+
+## Manual setup (GitHub Actions, free)
 
 The workflow `.github/workflows/compound.yml` runs every 10 minutes on the
 repo's **default branch**. Configure in *Settings → Secrets and variables →
@@ -44,8 +60,8 @@ Actions*:
 
 | name | default | meaning |
 |---|---|---|
-| `MINT` | — | your token's mint address |
-| `DRY_RUN` | — | set `1` to rehearse: reads + simulations only, no sends |
+| `MINT` | `bot/config.json` value | your token's mint address |
+| `DRY_RUN` | `bot/config.json` value | `1` = rehearse: reads + simulations only, no sends (also a manual-run input) |
 | `MIN_CLAIM_SOL` | `0.05` | skip the cycle below this much accrued/surplus SOL |
 | `GAS_RESERVE_SOL` | `0.03` | float that always stays in the wallet for tx fees |
 | `SLIPPAGE_PCT` | `2` | max slippage per swap/deposit, percent |

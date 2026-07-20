@@ -47,10 +47,19 @@ const {
 // Config
 // ---------------------------------------------------------------------------
 
+// Committed defaults (bot/config.json) that env vars override — lets launch
+// config (mint, go-live) ship as commits instead of repo-settings edits.
+let config = { mint: "", dryRun: true };
+try {
+  config = { ...config, ...require("./config.json") };
+} catch {}
+
 const env = process.env;
 const RPC_URL = env.RPC_URL;
-const MINT = env.MINT;
-const DRY_RUN = env.DRY_RUN === "1" || env.DRY_RUN === "true";
+const MINT = env.MINT || config.mint;
+const DRY_RUN = env.DRY_RUN != null && env.DRY_RUN !== ""
+  ? env.DRY_RUN === "1" || env.DRY_RUN === "true"
+  : config.dryRun !== false;
 const MIN_CLAIM_SOL = Number(env.MIN_CLAIM_SOL || "0.05");
 const GAS_RESERVE_SOL = Number(env.GAS_RESERVE_SOL || "0.03");
 const SLIPPAGE_PCT = Number(env.SLIPPAGE_PCT || "2"); // percent, e.g. 2 = 2%
@@ -63,7 +72,10 @@ function fail(msg) {
 }
 
 if (!RPC_URL) fail("RPC_URL is required");
-if (!MINT) fail("MINT is required");
+if (!MINT) {
+  console.log("no mint configured yet (bot/config.json) — waiting for launch");
+  process.exit(0);
+}
 
 function loadWallet() {
   const raw = env.WALLET_SECRET_KEY;
